@@ -1,0 +1,39 @@
+# --- Dependencies ---
+node_modules/
+
+# --- Build output ---
+dist/
+build/
+*.tsbuildinfo
+
+# --- Environment / secrets ---
+.env
+.env.local
+.env.*.local
+# keep the example template tracked
+!.env.example
+
+# --- Logs ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# --- OS ---
+Thumbs.db
+
+# --- Test / coverage ---
+coverage/
+.nyc_output/
+
+# --- TypeScript cache ---
+# (ts-node)
+.ts-node-cache/
