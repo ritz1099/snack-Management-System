@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Snack Counter Automation — Design</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 16mm 18mm 16mm;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #1a1a1a;
+    font-size: 10.5pt;
+    line-height: 1.45;
+    margin: 0;
+  }
+  h1 {
+    font-size: 21pt;
+    margin: 0 0 2pt 0;
+    color: #0b3d2e;
+    letter-spacing: -0.2px;
+  }
+  .subtitle {
+    font-size: 10.5pt;
+    color: #5a6b63;
+    margin: 0 0 14pt 0;
+  }
+  h2 {
+    font-size: 13pt;
+    color: #0b3d2e;
+    margin: 18pt 0 6pt 0;
+    padding-bottom: 3pt;
+    border-bottom:  1.5px solid #cdd9d3;
+  }
+  h3 {
+    font-size: 11pt;
+    color: #14524a;
+    margin: 12pt 0 4pt 0;
+  }
+  p { margin: 0 0 7pt 0; }
+  ul { margin: 0 0 7pt 0; padding-left: 16pt; }
+  li { margin-bottom: 3pt; }
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    background: #eef3f0;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 9pt;
+    color: #0b3d2e;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 6pt 0 10pt 0;
+    font-size: 9.5pt;
+  }
+  th, td {
+    border: 1px solid #cdd9d3;
+    text-align: left;
+    padding: 5pt 7pt;
+    vertical-align: top;
+  }
+  th {
+    background: #eef3f0;
+    color: #14524a;
+    font-weight: 600;
+  }
+  tr:nth-child(even) td { background: #f7faf8; }
+  .pill {
+    display: inline-block;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 8.5pt;
+    background: #0b3d2e;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 10px;
+    letter-spacing: 0.3px;
+  }
+  .flow {
+    margin: 8pt 0 4pt 0;
+  }
+  .example {
+    background: #f7faf8;
+    border: 1px solid #cdd9d3;
+    border-left: 4px solid #0b3d2e;
+    border-radius: 4px;
+    padding: 8pt 12pt;
+    margin: 8pt 0 12pt 0;
+  }
+  .example .who {
+    font-weight: 600;
+    color: #14524a;
+  }
+  .example .line {
+    margin: 3pt 0;
+    font-size: 9.8pt;
+  }
+  .callout {
+    background: #fff8e6;
+    border: 1px solid #e8d9a8;
+    border-radius: 4px;
+    padding: 7pt 10pt;
+    margin: 8pt 0;
+    font-size: 9.8pt;
+  }
+  .pagebreak { page-break-before: always; }
+  .small { font-size: 9pt; color: #5a6b63; }
+  .two-col { display: flex; gap: 14pt; }
+  .two-col > div { flex: 1; }
+  .kv td:first-child { width: 32%; font-weight: 600; color: #14524a; }
+  .footer {
+    margin-top: 14pt;
+    padding-top: 6pt;
+    border-top: 1px solid #cdd9d3;
+    font-size: 8.5pt;
+    color: #8a978f;
+  }
+</style>
+</head>
+<body>
+
+<h1>Snack Counter Automation</h1>
+<p class="subtitle">Design document · Offices: Oslo &amp; Bengaluru · Combined reporting currency: INR</p>
+
+<h2>1. The refill lifecycle — empty → reimbursed</h2>
+<p>A refill moves through six states. At any moment exactly one volunteer owns it; fallbacks reassign automatically on timeout.</p>
+
+<div class="flow">
+  <svg width="100%" height="200" viewBox="0 0 760 200" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+    <defs>
+      <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#0b3d2e"/>
+      </marker>
+      <marker id="arrDash" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L7,3.2 L0,6.4 Z" fill="#b9651b"/>
+      </marker>
+    </defs>
+
+    <g font-size="11" text-anchor="middle">
+      <rect x="10"  y="40" width="104" height="40" rx="6" fill="#eef3f0" stroke="#0b3d2e" stroke-width="1.3"/>
+      <text x="62"  y="64" fill="#0b3d2e" font-weight="600">EMPTY</text>
+
+      <rect x="140" y="40" width="112" height="40" rx="6" fill="#eef3f0" stroke="#0b3d2e" stroke-width="1.3"/>
+      <text x="196" y="64" fill="#0b3d2e" font-weight="600">ASSIGNED</text>
+
+      <rect x="278" y="40" width="112" height="40" rx="6" fill="#eef3f0" stroke="#0b3d2e" stroke-width="1.3"/>
+      <text x="334" y="64" fill="#0b3d2e" font-weight="600">COMMITTED</text>
+
+      <rect x="416" y="40" width="112" height="40" rx="6" fill="#eef3f0" stroke="#0b3d2e" stroke-width="1.3"/>
+      <text x="472" y="64" fill="#0b3d2e" font-weight="600">PURCHASED</text>
+
+      <rect x="554" y="40" width="104" height="40" rx="6" fill="#eef3f0" stroke="#0b3d2e" stroke-width="1.3"/>
+      <text x="606" y="64" fill="#0b3d2e" font-weight="600">APPROVED</text>
+
+      <rect x="624" y="40" width="104" height="40" rx="6" fill="#0b3d2e" stroke="#0b3d2e" stroke-width="1.3"/>
+      <text x="676" y="64" fill="#ffffff" font-weight="600">REIMBURSED</text>
+    </g>
+
+    <g stroke="#0b3d2e" stroke-width="1.6" fill="none">
+      <line x1="114" y1="60" x2="138" y2="60" marker-end="url(#arr)"/>
+      <line x1="252" y1="60" x2="276" y2="60" marker-end="url(#arr)"/>
+      <line x1="390" y1="60" x2="414" y2="60" marker-end="url(#arr)"/>
+      <line x1="528" y1="60" x2="552" y2="60" marker-end="url(#arr)"/>
+      <line x1="658" y1="60" x2="622" y2="60" marker-end="url(#arr)"/>
+    </g>
+
+    <rect x="300" y="130" width="160" height="34" rx="6" fill="#fff8e6" stroke="#b9651b" stroke-width="1.3"/>
+    <text x="380" y="151" text-anchor="middle" font-size="11" fill="#b9651b" font-weight="600">REASSIGN (timeout)</text>
+
+    <g stroke="#b9651b" stroke-width="1.4" fill="none" stroke-dasharray="5,3">
+      <path d="M196,80 L196,108 L320,108 L320,130" marker-end="url(#arrDash)"/>
+      <path d="M334,80 L334,108 L380,108 L380,130" marker-end="url(#arrDash)"/>
+    </g>
+    <text x="558" y="116" font-size="9" fill="#b9651b">dashed = timeout fallback → reassign to next volunteer</text>
+  </svg>
+</div>
+
+<table class="kv">
+  <tr><td>1 · EMPTY</td><td>Anyone reports the box empty via chat. A <code>Refill</code> record is created (id, office, timestamp).</td></tr>
+  <tr><td>2 · ASSIGNED</td><td>Assignment service picks exactly one eligible volunteer; chat asks them to refill by a deadline. <strong>Only one volunteer holds the refill.</strong></td></tr>
+  <tr><td>3 · COMMITTED</td><td>The volunteer accepts in chat. Purchase deadline set. No acceptance within the commit timeout → reassign to next.</td></tr>
+  <tr><td>4 · PURCHASED</td><td>Volunteer buys, refills, uploads receipt + enters amount / currency / snack description. Budget check runs, then a reimbursement claim is auto-filed to HR (amount, currency, description, receipt, employee id). No purchase by deadline → reassign.</td></tr>
+  <tr><td>5 · APPROVED</td><td>HR approves (1–10 days).</td></tr>
+  <tr><td>6 · REIMBURSED</td><td>HR confirms payment. Lifecycle closed.</td></tr>
+</table>
+<p class="small">If no eligible volunteer exists, all volunteers + the office lead are notified (escalation).</p>
+
+<h2 class="pagebreak">2. Worked example</h2>
+<p>Two offices, one refill each, ending in the combined monthly report (in INR).</p>
+
+<h3>Example A — Oslo box (NOK budget 6 000/month)</h3>
+<div class="example">
+  <div class="line"><span class="who">Aman</span> clicks “Report box empty (Oslo)” in chat.</div>
+  <div class="line"><span class="who">Bot (public):</span> “Oslo box empty. Refill #142.”</div>
+  <div class="line"><span class="who">Assignment:</span> eligible = volunteers currently in Oslo; Priya chosen (fewest refills, longest since last). <span class="pill">ASSIGNED</span></div>
+  <div class="line"><span class="who">Bot → Priya:</span> “Can you refill Oslo box #142 by Wed? [Accept] [Decline]”</div>
+  <div class="line"><span class="who">Priya</span> clicks Accept. <span class="pill">COMMITTED</span></div>
+  <div class="line"><span class="who">Priya</span> buys snacks, refills, uploads receipt, types “340 NOK, oat bars”.</div>
+  <div class="line"><span class="who">Budget check:</span> Oslo month-to-date 5 700 NOK + 340 = 6 040 NOK ≤ 6 000? <strong>Over by 40 → flagged for office-lead approval, not auto-filed.</strong> <span class="pill">PURCHASED*</span></div>
+  <div class="line"><span class="who">Office lead</span> approves the over-budget refill. Claim filed to HR (340 NOK, Priya's employee id, receipt).</div>
+  <div class="line"><span class="who">HR:</span> approves after 4 days; reimburses Priya in INR (her payroll currency). <span class="pill">REIMBURSED</span></div>
+</div>
+
+<h3>Example B — Bengaluru box (INR budget 15 000/month)</h3>
+<div class="example">
+  <div class="line"><span class="who">Riya</span> reports box empty. <span class="pill">EMPTY</span></div>
+  <div class="line"><span class="who">Assignment:</span> Vikram chosen (in Bengaluru today, fewest refills). <span class="pill">ASSIGNED</span></div>
+  <div class="line"><span class="who">Vikram</span> accepts. <span class="pill">COMMITTED</span></div>
+  <div class="line"><span class="who">Vikram</span> uploads receipt: “1 200 INR, mixed nuts”. Budget check: 11 800 + 1 200 = 13 000 ≤ 15 000 ✓ → auto-filed to HR. <span class="pill">PURCHASED</span></div>
+  <div class="line"><span class="who">HR</span> approves; reimburses Vikram in INR. <span class="pill">REIMBURSED</span></div>
+</div>
+
+<h3>Combined monthly report (in INR)</h3>
+<table>
+  <tr><th>Office</th><th>Local spend</th><th>Budget</th><th>Remaining</th><th>INR (reporting)</th></tr>
+  <tr><td>Oslo</td><td>6 040 NOK</td><td>6 000 NOK</td><td>−40 NOK (over)</td><td>6 040 × 8.0 = 48 320 INR</td></tr>
+  <tr><td>Bengaluru</td><td>13 000 INR</td><td>15 000 INR</td><td>2 000 INR</td><td>13 000 INR</td></tr>
+  <tr><td><strong>Combined</strong></td><td colspan="3"></td><td><strong>61 320 INR</strong></td></tr>
+</table>
+<p class="small">FX snapshot stored at each purchase date (here NOK→INR = 8.0). Per-office budgets are checked in local currency; only the combined total converts to INR.</p>
+
+<h2 class="pagebreak">3. Parts and the data each keeps</h2>
+<table>
+  <tr><th>Part</th><th>Role</th><th>Data it keeps</th></tr>
+  <tr><td><strong>Chat tool</strong><br><span class="small">(<code>ChatPort</code>, simulated)</span></td><td>The UI. Sends assignment requests, reminders, status updates; receives empty reports, accept/decline, receipt uploads.</td><td>Nothing durable — it is a transport. (In our build: a simulated stand-in that records sent messages.)</td></tr>
+  <tr><td><strong>HR system</strong><br><span class="small">(<code>HrPort</code>, simulated)</span></td><td>Receives reimbursement claims, returns a claim id, later an approval status. Reimburses in the employee's payroll currency.</td><td>Its own claim records (HR's concern, not ours).</td></tr>
+  <tr><td><strong>Core service</strong><br><span class="small">(what we build)</span></td><td>Owns the refill state machine, assignment policy, budget check, monthly report.</td><td><code>Volunteer</code> (id, home office, current location, refills-done count, last refill date); <code>Refill</code> (id, office, status, owner, deadlines, amount, currency, snack desc, receipt ref, claim id, fx snapshot); <code>Office</code> (budget, budget currency).</td></tr>
+  <tr><td><strong>Repository</strong><br><span class="small">(<code>Repository</code>, in-memory)</span></td><td>Atomic persistence. Status transitions are compare-and-set so a refill is owned by exactly one volunteer.</td><td>All refill &amp; volunteer records (in-memory in our build).</td></tr>
+  <tr><td><strong>Clock / IdGen</strong><br><span class="small">(ports)</span></td><td>Injectable time and id generation so timeouts and ids are testable.</td><td>None.</td></tr>
+</table>
+<p class="small">The core depends only on the ports; the chat and HR adapters are swappable stand-ins. In production the chat tool is the UI (a bot in the company's existing chat app) — we never build a separate app. In our deliverable the chat tool is simulated, so the tests themselves drive the lifecycle by calling operations directly.</p>
+
+<h2>4. How the problems are prevented</h2>
+<table>
+  <tr><th>Problem today</th><th>How the design prevents it</th></tr>
+  <tr><td>Box sits empty for days — everyone assumes someone else will refill</td><td>Every refill is <strong>assigned to a named person with a deadline</strong>; reminders fire before the deadline; on timeout it is <strong>reassigned automatically</strong> and escalated if nobody is available.</td></tr>
+  <tr><td>Two people buy on the same day</td><td>A refill has a <strong>single owner</strong>. The atomic claim/commit transition guarantees only one volunteer can be <code>COMMITTED</code> for a refill; a purchase must reference a <code>COMMITTED</code> refill owned by the purchaser.</td></tr>
+  <tr><td>A few people do most refills; they wait weeks for reimbursement</td><td>Assignment uses a <strong>fairness policy</strong> (fewest refills, longest since last, currently at the target office). Reimbursement is <strong>filed automatically on receipt upload</strong>, removing the manual chase.</td></tr>
+  <tr><td>Nobody knows monthly spend or which snacks get eaten</td><td>Every purchase records amount, currency, snack description. A <strong>monthly report</strong> totals per office in local currency and gives a <strong>combined total in INR</strong> using the FX snapshot at purchase date.</td></tr>
+</table>
+
+<h2>5. Trade-offs &amp; what we deliberately don't build</h2>
+<div class="two-col">
+  <div>
+    <h3>Trade-offs made</h3>
+    <ul>
+      <li><strong>Human-reported empties over IoT sensors</strong> — cheaper, no hardware; mitigated by reminders + deadlines.</li>
+      <li><strong>Manual amount/snack entry over receipt OCR</strong> — simpler and accurate; cost is a few seconds of typing.</li>
+      <li><strong>Self-declared availability over calendar integration</strong> — no infra dependency; one-tap chat action.</li>
+      <li><strong>FX snapshot at purchase date over live FX</strong> — predictable, audit-friendly totals; minor drift acceptable for a snack report.</li>
+      <li><strong>Fairness rotation over optimal buyer</strong> — keeps volunteers willing; not always the cheapest/fastest.</li>
+      <li><strong>Over-budget → flag, not auto-file</strong> — keeps spending controllable without blocking normal refills.</li>
+    </ul>
+  </div>
+  <div>
+    <h3>Deliberately not building</h3>
+    <ul>
+      <li>IoT box sensors.</li>
+      <li>Receipt OCR / ML.</li>
+      <li>A custom auth system (use existing company SSO).</li>
+      <li>A separate mobile / web app (chat is the UI).</li>
+      <li>A full HR replacement (only the documented claim API).</li>
+      <li>Real-time FX hedging.</li>
+      <li>Cross-office visit scheduling beyond a volunteer's location flag.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout"><strong>Edge cases covered:</strong> an employee visiting the other office for a week is eligible only if their <em>current location</em> matches that office; they submit the claim in the purchase currency (HR reimburses in their payroll currency). Hybrid / holiday volunteers are skipped by default but can self-volunteer.</div>
+
+<h2>6. Rules the automated tests must prove</h2>
+<ul>
+  <li>Two volunteers cannot both commit to the same refill (atomic ownership).</li>
+  <li>A refill nobody completes is reassigned to someone else on timeout.</li>
+  <li>Monthly budgets and totals are correct across both currencies (NOK &amp; INR), including the INR combined total.</li>
+</ul>
+
+<p class="footer">Snack Counter Automation — Design document · Reporting currency: INR · Prepared for submission</p>
+
+</body>
+</html>

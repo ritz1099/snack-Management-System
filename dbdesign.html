@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Snack Counter Automation — Database Design</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #1a1a1a; font-size: 10pt; line-height: 1.42; margin: 0;
+  }
+  h1 { font-size: 20pt; margin: 0 0 2pt 0; color: #0b3d2e; letter-spacing: -0.2px; }
+  .subtitle { font-size: 10pt; color: #5a6b63; margin: 0 0 12pt 0; }
+  h2 { font-size: 12.5pt; color: #0b3d2e; margin: 16pt 0 5pt 0; padding-bottom: 3pt; border-bottom: 1.5px solid #cdd9d3; }
+  h3 { font-size: 10.5pt; color: #14524a; margin: 10pt 0 4pt 0; }
+  p { margin: 0 0 6pt 0; }
+  ul { margin: 0 0 6pt 0; padding-left: 15pt; }
+  li { margin-bottom: 2.5pt; }
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; background: #eef3f0; padding: 1px 4px; border-radius: 3px; font-size: 8.5pt; color: #0b3d2e; }
+  table { border-collapse: collapse; width: 100%; margin: 5pt 0 8pt 0; font-size: 9pt; }
+  th, td { border: 1px solid #cdd9d3; text-align: left; padding: 4pt 6pt; vertical-align: top; }
+  th { background: #eef3f0; color: #14524a; font-weight: 600; }
+  tr:nth-child(even) td { background: #f7faf8; }
+  pre {
+    background: #f7faf8; border: 1px solid #cdd9d3; border-left: 4px solid #0b3d2e;
+    border-radius: 4px; padding: 7pt 10pt; margin: 6pt 0 10pt 0;
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 7.5pt; line-height: 1.38;
+    white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+    color: #14241f; page-break-inside: avoid;
+  }
+  pre .kw { color: #0b3d2e; font-weight: 600; }
+  pre .cmt { color: #6a8a7e; }
+  .er { margin: 6pt 0 4pt 0; text-align: center; }
+  .small { font-size: 8.5pt; color: #5a6b63; }
+  .pagebreak { page-break-before: always; }
+  .footer { margin-top: 12pt; padding-top: 5pt; border-top: 1px solid #cdd9d3; font-size: 8pt; color: #8a978f; }
+</style>
+</head>
+<body>
+
+<h1>Snack Counter Automation — Database Design</h1>
+<p class="subtitle">PostgreSQL · Reporting currency: INR · Money stored as NUMERIC (never float) · Receipts in blob storage</p>
+
+<h2>1. Entity overview</h2>
+<table>
+  <tr><th>Table</th><th>Purpose</th></tr>
+  <tr><td><code>office</code></td><td>One row per office (Oslo, Bengaluru). Current monthly budget + its currency.</td></tr>
+  <tr><td><code>office_monthly_budget</code></td><td>Budget history per month, so old reports stay accurate if budgets change.</td></tr>
+  <tr><td><code>volunteer</code></td><td>An employee. Home office + live <code>current_location</code> (OSLO / BENGALURU / REMOTE / HOLIDAY) that drives assignment, plus cached fairness counters.</td></tr>
+  <tr><td><code>refill</code></td><td>The core lifecycle record. Single columns for assigned/committed volunteer guarantee one owner at a time.</td></tr>
+  <tr><td><code>claim</code></td><td>Local 1:1 mirror of the reimbursement claim sent to HR (HR is external; we keep our own copy + status).</td></tr>
+  <tr><td><code>receipt</code></td><td>One or more receipt images per refill (DB holds only a <code>storage_uri</code>).</td></tr>
+  <tr><td><code>refill_event</code></td><td>Append-only audit log of every state transition (reassignment rounds, escalation, forensics).</td></tr>
+</table>
+
+<h2>2. ER diagram</h2>
+<div class="er">
+  <svg width="100%" viewBox="0 0 1020 540" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+    <defs>
+      <marker id="dot" markerWidth="8" markerHeight="8" refX="4" refY="4" markerUnits="userSpaceOnUse">
+        <circle cx="4" cy="4" r="2.6" fill="#14524a"/>
+      </marker>
+    </defs>
+
+    <!-- relationship lines (drawn first, under boxes) -->
+    <g stroke="#5a8a7e" stroke-width="1.4" fill="none">
+      <!-- R1 OFFICE - OFFICE_MONTHLY_BUDGET -->
+      <line x1="135" y1="68" x2="135" y2="300"/>
+      <!-- R2 OFFICE - VOLUNTEER -->
+      <line x1="230" y1="54" x2="415" y2="54"/>
+      <!-- R3 OFFICE - REFILL -->
+      <polyline points="230,60 322,60 322,314 415,314"/>
+      <!-- R4 VOLUNTEER - REFILL -->
+      <line x1="510" y1="68" x2="510" y2="300"/>
+      <!-- R5 REFILL - CLAIM (1:1) -->
+      <polyline points="605,314 700,314 700,54 790,54"/>
+      <!-- R6 REFILL - RECEIPT -->
+      <line x1="605" y1="320" x2="790" y2="320"/>
+      <!-- R7 REFILL - REFILL_EVENT -->
+      <polyline points="605,324 660,324 660,484 790,484"/>
+      <!-- R8 VOLUNTEER - RECEIPT (uploads) -->
+      <polyline points="510,40 510,28 1010,28 1010,314 980,314"/>
+    </g>
+
+    <!-- cardinality labels -->
+    <g font-size="9" fill="#b9651b" font-weight="600">
+      <text x="142" y="186">1 — N</text>
+      <text x="300" y="48">1 — N · home office</text>
+      <text x="328" y="190">1 — N · box</text>
+      <text x="517" y="186">1 — N · owns</text>
+      <text x="708" y="186">1 — 1 · reimburses</text>
+      <text x="668" y="314">1 — N · has</text>
+      <text x="664" y="406">1 — N · audit</text>
+      <text x="690" y="23">1 — N · uploads</text>
+    </g>
+
+    <!-- table boxes -->
+    <g font-size="11" text-anchor="middle" fill="#ffffff" font-weight="600">
+      <rect x="40"  y="40"  width="190" height="28" rx="5" fill="#0b3d2e"/>
+      <text x="135" y="58">OFFICE</text>
+
+      <rect x="40"  y="300" width="190" height="28" rx="5" fill="#0b3d2e"/>
+      <text x="135" y="318" font-size="9">OFFICE_MONTHLY_BUDGET</text>
+
+      <rect x="415" y="40"  width="190" height="28" rx="5" fill="#0b3d2e"/>
+      <text x="510" y="58">VOLUNTEER</text>
+
+      <rect x="415" y="300" width="190" height="28" rx="5" fill="#0b3d2e"/>
+      <text x="510" y="318">REFILL</text>
+
+      <rect x="790" y="40"  width="190" height="28" rx="5" fill="#0b3d2e"/>
+      <text x="885" y="58">CLAIM</text>
+
+      <rect x="790" y="300" width="190" height="28" rx="5" fill="#0b3d2e"/>
+      <text x="885" y="318">RECEIPT</text>
+
+      <rect x="790" y="470" width="190" height="28" rx="5" fill="#0b3d2e"/>
+      <text x="885" y="488">REFILL_EVENT</text>
+    </g>
+  </svg>
+</div>
+<p class="small">REFILL_EVENT also references VOLUNTEER (the actor of each transition) via <code>volunteer_id</code> — omitted from the diagram to keep it readable; it is an FK in the DDL below.</p>
+
+<h2 class="pagebreak">3. Table definitions (DDL)</h2>
+<pre><span class="cmt">-- ---------- OFFICE ----------</span>
+<span class="kw">CREATE TABLE</span> office (
+  id               <span class="kw">VARCHAR</span>(20)  <span class="kw">PRIMARY KEY</span>,                 <span class="cmt">-- 'OSL', 'BLR'</span>
+  name             <span class="kw">VARCHAR</span>(50)  <span class="kw">NOT NULL</span>,
+  monthly_budget   <span class="kw">NUMERIC</span>(12,2) <span class="kw">NOT NULL</span>,
+  budget_currency  <span class="kw">CHAR</span>(3)     <span class="kw">NOT NULL</span> <span class="kw">CHECK</span> (budget_currency <span class="kw">IN</span> (<span class="cmt">'NOK','INR'</span>)),
+  location_tag     <span class="kw">VARCHAR</span>(10) <span class="kw">NOT NULL</span> <span class="kw">CHECK</span> (location_tag <span class="kw">IN</span> (<span class="cmt">'OSLO','BENGALURU'</span>)),
+  created_at       <span class="kw">TIMESTAMPTZ NOT NULL DEFAULT</span> now()
+);
+
+<span class="kw">CREATE TABLE</span> office_monthly_budget (
+  office_id       <span class="kw">VARCHAR</span>(20)  <span class="kw">NOT NULL REFERENCES</span> office(id),
+  period_month    <span class="kw">CHAR</span>(7)      <span class="kw">NOT NULL</span>,                      <span class="cmt">-- 'YYYY-MM'</span>
+  budget_amount   <span class="kw">NUMERIC</span>(12,2) <span class="kw">NOT NULL</span>,
+  currency        <span class="kw">CHAR</span>(3)     <span class="kw">NOT NULL</span> <span class="kw">CHECK</span> (currency <span class="kw">IN</span> (<span class="cmt">'NOK','INR'</span>)),
+  <span class="kw">PRIMARY KEY</span> (office_id, period_month)
+);
+
+<span class="cmt">-- ---------- VOLUNTEER ----------</span>
+<span class="kw">CREATE TABLE</span> volunteer (
+  id                <span class="kw">VARCHAR</span>(20)  <span class="kw">PRIMARY KEY</span>,                <span class="cmt">-- company employee id (SSO)</span>
+  display_name      <span class="kw">VARCHAR</span>(100) <span class="kw">NOT NULL</span>,
+  home_office_id    <span class="kw">VARCHAR</span>(20)  <span class="kw">NOT NULL REFERENCES</span> office(id),
+  current_location  <span class="kw">VARCHAR</span>(10)  <span class="kw">NOT NULL</span> <span class="kw">CHECK</span>
+      (current_location <span class="kw">IN</span> (<span class="cmt">'OSLO','BENGALURU','REMOTE','HOLIDAY'</span>)),
+  refills_done      <span class="kw">INTEGER</span>      <span class="kw">NOT NULL DEFAULT</span> 0,   <span class="cmt">-- cached for fairness</span>
+  last_refill_at    <span class="kw">TIMESTAMPTZ</span>,
+  created_at        <span class="kw">TIMESTAMPTZ NOT NULL DEFAULT</span> now()
+);
+
+<span class="cmt">-- ---------- REFILL (core lifecycle) ----------</span>
+<span class="kw">CREATE TABLE</span> refill (
+  id                        <span class="kw">BIGSERIAL PRIMARY KEY</span>,
+  office_id                 <span class="kw">VARCHAR</span>(20) <span class="kw">NOT NULL REFERENCES</span> office(id),
+  status      <span class="kw">VARCHAR</span>(12) <span class="kw">NOT NULL CHECK</span> (status <span class="kw">IN</span>
+    (<span class="cmt">'EMPTY','ASSIGNED','COMMITTED','PURCHASED','APPROVED','REIMBURSED','REASSIGNED','CANCELLED'</span>)),
+  created_at                <span class="kw">TIMESTAMPTZ NOT NULL DEFAULT</span> now(),   <span class="cmt">-- reported empty</span>
+  reported_by               <span class="kw">VARCHAR</span>(20) <span class="kw">REFERENCES</span> volunteer(id),
+
+  assigned_volunteer_id     <span class="kw">VARCHAR</span>(20) <span class="kw">REFERENCES</span> volunteer(id),
+  assigned_at               <span class="kw">TIMESTAMPTZ</span>,
+  commit_deadline           <span class="kw">TIMESTAMPTZ</span>,                 <span class="cmt">-- must accept by</span>
+  assignment_round          <span class="kw">INTEGER</span> <span class="kw">NOT NULL DEFAULT</span> 1,  <span class="cmt">-- ++ on reassign</span>
+
+  committed_volunteer_id    <span class="kw">VARCHAR</span>(20) <span class="kw">REFERENCES</span> volunteer(id),
+  committed_at              <span class="kw">TIMESTAMPTZ</span>,
+  purchase_deadline         <span class="kw">TIMESTAMPTZ</span>,                 <span class="cmt">-- must buy by</span>
+
+  purchase_amount           <span class="kw">NUMERIC</span>(12,2),
+  purchase_currency         <span class="kw">CHAR</span>(3)     <span class="kw">CHECK</span> (purchase_currency <span class="kw">IN</span> (<span class="cmt">'NOK','INR'</span>)),
+  snack_description         <span class="kw">TEXT</span>,
+  purchased_at              <span class="kw">TIMESTAMPTZ</span>,
+  over_budget               <span class="kw">BOOLEAN NOT NULL DEFAULT</span> <span class="cmt">FALSE</span>,
+  over_budget_approved_by   <span class="kw">VARCHAR</span>(20) <span class="kw">REFERENCES</span> volunteer(id),
+
+  fx_rate                   <span class="kw">NUMERIC</span>(10,6),                <span class="cmt">-- purchase_ccy -> INR</span>
+  fx_reporting_currency     <span class="kw">CHAR</span>(3) <span class="kw">NOT NULL DEFAULT</span> <span class="cmt">'INR'</span>,
+
+  approved_at               <span class="kw">TIMESTAMPTZ</span>,
+  reimbursed_at             <span class="kw">TIMESTAMPTZ</span>,
+
+  <span class="cmt">-- status-consistency guards</span>
+  <span class="kw">CHECK</span> (status = <span class="cmt">'EMPTY'</span>   <span class="kw">OR</span> assigned_volunteer_id  <span class="kw">IS NOT NULL</span>),
+  <span class="kw">CHECK</span> (status &lt;&gt; <span class="cmt">'COMMITTED'</span> <span class="kw">OR</span> committed_volunteer_id <span class="kw">IS NOT NULL</span>),
+  <span class="kw">CHECK</span> (status <span class="kw">NOT IN</span> (<span class="cmt">'PURCHASED','APPROVED','REIMBURSED'</span>)
+        <span class="kw">OR</span> purchase_amount <span class="kw">IS NOT NULL</span>),
+  <span class="kw">CHECK</span> (status <span class="kw">NOT IN</span> (<span class="cmt">'PURCHASED','APPROVED','REIMBURSED'</span>)
+        <span class="kw">OR</span> purchased_at <span class="kw">IS NOT NULL</span>)
+);
+
+<span class="cmt">-- ---------- CLAIM (1:1 local mirror of HR claim) ----------</span>
+<span class="kw">CREATE TABLE</span> claim (
+  id           <span class="kw">BIGSERIAL PRIMARY KEY</span>,
+  refill_id    <span class="kw">BIGINT</span> <span class="kw">NOT NULL UNIQUE REFERENCES</span> refill(id),   <span class="cmt">-- 1:1</span>
+  employee_id  <span class="kw">VARCHAR</span>(20) <span class="kw">NOT NULL REFERENCES</span> volunteer(id),
+  amount       <span class="kw">NUMERIC</span>(12,2) <span class="kw">NOT NULL</span>,
+  currency     <span class="kw">CHAR</span>(3) <span class="kw">NOT NULL</span> <span class="kw">CHECK</span> (currency <span class="kw">IN</span> (<span class="cmt">'NOK','INR'</span>)),
+  description  <span class="kw">TEXT NOT NULL</span>,
+  receipt_ref  <span class="kw">VARCHAR</span>(255) <span class="kw">NOT NULL</span>,
+  status       <span class="kw">VARCHAR</span>(12) <span class="kw">NOT NULL CHECK</span> (status <span class="kw">IN</span>
+              (<span class="cmt">'SUBMITTED','APPROVED','REJECTED','PAID'</span>)),
+  hr_claim_ref <span class="kw">VARCHAR</span>(64),                 <span class="cmt">-- id returned by HR</span>
+  submitted_at <span class="kw">TIMESTAMPTZ NOT NULL DEFAULT</span> now(),
+  approved_at  <span class="kw">TIMESTAMPTZ</span>,
+  paid_at      <span class="kw">TIMESTAMPTZ</span>
+);
+
+<span class="cmt">-- ---------- RECEIPT ----------</span>
+<span class="kw">CREATE TABLE</span> receipt (
+  id          <span class="kw">BIGSERIAL PRIMARY KEY</span>,
+  refill_id   <span class="kw">BIGINT</span> <span class="kw">NOT NULL REFERENCES</span> refill(id),
+  uploaded_by <span class="kw">VARCHAR</span>(20) <span class="kw">NOT NULL REFERENCES</span> volunteer(id),
+  storage_uri <span class="kw">VARCHAR</span>(255) <span class="kw">NOT NULL</span>,
+  content_type <span class="kw">VARCHAR</span>(50),
+  uploaded_at <span class="kw">TIMESTAMPTZ NOT NULL DEFAULT</span> now()
+);
+
+<span class="cmt">-- ---------- REFILL_EVENT (append-only audit) ----------</span>
+<span class="kw">CREATE TABLE</span> refill_event (
+  id           <span class="kw">BIGSERIAL PRIMARY KEY</span>,
+  refill_id    <span class="kw">BIGINT</span> <span class="kw">NOT NULL REFERENCES</span> refill(id),
+  from_status  <span class="kw">VARCHAR</span>(12),
+  to_status    <span class="kw">VARCHAR</span>(12) <span class="kw">NOT NULL</span>,
+  volunteer_id <span class="kw">VARCHAR</span>(20) <span class="kw">REFERENCES</span> volunteer(id),   <span class="cmt">-- actor</span>
+  note         <span class="kw">TEXT</span>,
+  occurred_at  <span class="kw">TIMESTAMPTZ NOT NULL DEFAULT</span> now()
+);
+
+<span class="cmt">-- ---------- INDEXES ----------</span>
+<span class="kw">CREATE INDEX</span> idx_refill_office_status <span class="kw">ON</span> refill(office_id, status);
+<span class="kw">CREATE INDEX</span> idx_refill_active_owner  <span class="kw">ON</span> refill(assigned_volunteer_id)
+       <span class="kw">WHERE</span> status <span class="kw">IN</span> (<span class="cmt">'ASSIGNED','COMMITTED'</span>);
+<span class="kw">CREATE INDEX</span> idx_refill_committed     <span class="kw">ON</span> refill(committed_volunteer_id) <span class="kw">WHERE</span> status = <span class="cmt">'COMMITTED'</span>;
+<span class="kw">CREATE INDEX</span> idx_refill_purchased    <span class="kw">ON</span> refill(office_id, purchased_at)
+       <span class="kw">WHERE</span> status <span class="kw">IN</span> (<span class="cmt">'PURCHASED','APPROVED','REIMBURSED'</span>);
+<span class="kw">CREATE INDEX</span> idx_volunteer_location   <span class="kw">ON</span> volunteer(current_location);
+<span class="kw">CREATE INDEX</span> idx_claim_status        <span class="kw">ON</span> claim(status);
+<span class="kw">CREATE INDEX</span> idx_event_refill_time    <span class="kw">ON</span> refill_event(refill_id, occurred_at);</pre>
+
+<h2 class="pagebreak">4. Atomicity — how "two people can't both commit" is enforced</h2>
+<p>Ownership is a single column, and the transition is a compare-and-set <code>UPDATE</code>. Only the first caller wins; the second gets 0 affected rows and is rejected. Every transition also inserts a <code>refill_event</code> row in the same transaction.</p>
+<pre><span class="cmt">-- Commit: only the assigned volunteer can move ASSIGNED -> COMMITTED</span>
+<span class="kw">UPDATE</span> refill
+<span class="kw">SET</span> status = <span class="cmt">'COMMITTED'</span>,
+    committed_volunteer_id = assigned_volunteer_id,
+    committed_at = now(),
+    purchase_deadline = now() + <span class="kw">interval</span> <span class="cmt">'2 days'</span>
+<span class="kw">WHERE</span> id = $1
+  <span class="kw">AND</span> status = <span class="cmt">'ASSIGNED'</span>
+  <span class="kw">AND</span> assigned_volunteer_id = $2;   <span class="cmt">-- caller's volunteer id</span>
+<span class="cmt">-- affected rows = 1 -> commit succeeded</span>
+<span class="cmt">-- affected rows = 0 -> already taken / state changed -> reject</span></pre>
+
+<h2>5. Key queries</h2>
+
+<h3>Fairness assignment</h3>
+<p>Eligible = currently at the target office; pick fewest refills, then longest since last. <code>FOR UPDATE SKIP LOCKED</code> makes concurrent assignments safe.</p>
+<pre><span class="kw">SELECT</span> v.id
+<span class="kw">FROM</span> volunteer v
+<span class="kw">JOIN</span> office o <span class="kw">ON</span> o.id = $1
+<span class="kw">WHERE</span> v.current_location = o.location_tag
+<span class="kw">ORDER BY</span> v.refills_done <span class="kw">ASC</span>, v.last_refill_at <span class="kw">ASC NULLS FIRST</span>
+<span class="kw">LIMIT</span> 1 <span class="kw">FOR UPDATE SKIP LOCKED</span>;</pre>
+
+<h3>Budget check (before filing the claim)</h3>
+<p>Sums this month's spend in the office's own currency. If false → set <code>over_budget = true</code>, do not auto-file; flag for office-lead approval.</p>
+<pre><span class="kw">SELECT</span>
+  ( (<span class="kw">SELECT</span> <span class="kw">COALESCE</span>(<span class="kw">SUM</span>(purchase_amount),0) <span class="kw">FROM</span> refill
+      <span class="kw">WHERE</span> office_id = $1
+        <span class="kw">AND</span> status <span class="kw">IN</span> (<span class="cmt">'PURCHASED','APPROVED','REIMBURSED'</span>)
+        <span class="kw">AND</span> date_trunc(<span class="cmt">'month'</span>, purchased_at) = date_trunc(<span class="cmt">'month'</span>, now()))
+    + $2 )                              <span class="cmt">-- new amount</span>
+  &lt;= (<span class="kw">SELECT</span> monthly_budget <span class="kw">FROM</span> office <span class="kw">WHERE</span> id = $1)
+  <span class="kw">AS</span> within_budget;</pre>
+
+<h3>Monthly report — per-office local totals + combined INR total</h3>
+<p>Uses the FX snapshot stored per refill. A Bengaluru refill has <code>fx_rate = 1</code> (already INR).</p>
+<pre><span class="kw">SELECT</span>
+  o.id <span class="kw">AS</span> office,
+  <span class="kw">COALESCE</span>(<span class="kw">SUM</span>(r.purchase_amount),0) <span class="kw">AS</span> local_spend,
+  o.budget_currency,
+  o.monthly_budget,
+  <span class="kw">COALESCE</span>(<span class="kw">SUM</span>(
+    <span class="kw">CASE WHEN</span> r.purchase_currency = <span class="cmt">'INR'</span> <span class="kw">THEN</span> r.purchase_amount
+         <span class="kw">ELSE</span> r.purchase_amount * r.fx_rate <span class="kw">END</span>),0) <span class="kw">AS</span> spend_inr
+<span class="kw">FROM</span> office o
+<span class="kw">LEFT JOIN</span> refill r <span class="kw">ON</span> r.office_id = o.id
+  <span class="kw">AND</span> r.status <span class="kw">IN</span> (<span class="cmt">'PURCHASED','APPROVED','REIMBURSED'</span>)
+  <span class="kw">AND</span> date_trunc(<span class="cmt">'month'</span>, r.purchased_at) = date_trunc(<span class="cmt">'month'</span>, now())
+<span class="kw">GROUP BY</span> o.id;
+<span class="cmt">-- combined INR total = SUM(spend_inr) over all offices</span></pre>
+
+<h3>Timeout reassignment (scheduled job)</h3>
+<pre><span class="kw">SELECT</span> id, office_id, assignment_round
+<span class="kw">FROM</span> refill
+<span class="kw">WHERE</span> (status = <span class="cmt">'ASSIGNED'</span>  <span class="kw">AND</span> commit_deadline   &lt; now())
+   <span class="kw">OR</span> (status = <span class="cmt">'COMMITTED'</span> <span class="kw">AND</span> purchase_deadline &lt; now());</pre>
+
+<h2>6. Notes &amp; rationale</h2>
+<ul>
+  <li><strong>Money:</strong> <code>NUMERIC(12,2)</code> for amounts, <code>NUMERIC(10,6)</code> for FX rates. No floats anywhere.</li>
+  <li><strong>Currencies:</strong> per-office budget is checked in that office's <code>budget_currency</code>; the combined report converts everything to INR using the per-refill <code>fx_rate</code> snapshot taken on purchase day.</li>
+  <li><strong>Receipts:</strong> stored in blob storage; <code>receipt.storage_uri</code> is the only thing in the DB — keeps rows small.</li>
+  <li><strong>Single owner:</strong> enforced structurally (one column) + atomically (CAS <code>UPDATE</code>) + audited (<code>refill_event</code>). The status-consistency <code>CHECK</code> constraints keep status and owner in sync.</li>
+  <li><strong>Fairness cache:</strong> <code>volunteer.refills_done</code> and <code>last_refill_at</code> are denormalized for a fast <code>ORDER BY</code>. Updated in the same transaction as the refill transition, so they never drift.</li>
+  <li><strong>HR is external:</strong> <code>claim</code> is our local mirror. <code>hr_claim_ref</code> is the id HR returns; we poll/update <code>claim.status</code> when HR approves.</li>
+  <li><strong>Reporting currency</strong> is fixed to INR (<code>fx_reporting_currency</code> default) per requirement.</li>
+</ul>
+
+<p class="footer">Snack Counter Automation — Database Design · PostgreSQL · Reporting currency: INR · Prepared for submission</p>
+
+</body>
+</html>
